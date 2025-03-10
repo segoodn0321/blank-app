@@ -7,8 +7,7 @@ class MacroCalculator:
         self.weight = weight
         self.bf_percent = bf_percent
         self.lean_mass = self.calculate_lean_mass()
-        self.bmr = self.calculate_bmr()
-        self.tdee = self.bmr * activity_level
+        self.rmr = self.calculate_rmr()  # Using RMR instead of TDEE
         self.goal = goal.lower()
         self.daily_weights = []
 
@@ -16,44 +15,48 @@ class MacroCalculator:
         self.calculate_macros()
 
     def calculate_lean_mass(self):
+        """Calculates lean body mass (LBM)."""
         return self.weight * (1 - (self.bf_percent / 100))
 
-    def calculate_bmr(self):
+    def calculate_rmr(self):
+        """Calculates Resting Metabolic Rate (RMR) using the Katch-McArdle formula."""
         return 370 + (21.6 * self.lean_mass)
 
     def adjust_calories(self):
+        """Adjusts calories based on the goal (cut, maintain, bulk)."""
         if self.goal == "cut":
-            self.calories = self.tdee - 500
+            self.calories = self.rmr - 500  # 500 kcal deficit
         elif self.goal == "bulk":
-            self.calories = self.tdee + 300
+            self.calories = self.rmr + 300  # 300 kcal surplus
         else:
-            self.calories = self.tdee
+            self.calories = self.rmr  # Maintenance
 
     def calculate_macros(self):
-        self.protein = self.lean_mass * 1.0  
-        self.fat = self.weight * 0.3
-        remaining_calories = self.calories - (self.protein * 4 + self.fat * 9)
-        self.carbs = remaining_calories / 4
+        """Calculates macros using 40% protein, 30% carbs, 30% fat split."""
+        self.protein = (0.40 * self.calories) / 4  # Protein: 40% of total calories (4 kcal/g)
+        self.carbs = (0.30 * self.calories) / 4    # Carbs: 30% of total calories (4 kcal/g)
+        self.fat = (0.30 * self.calories) / 9      # Fat: 30% of total calories (9 kcal/g)
 
     def update_weight(self, new_weight):
+        """Updates weight, recalculates lean mass, RMR, and macros."""
         self.daily_weights.append(new_weight)
         self.weight = new_weight
         self.lean_mass = self.calculate_lean_mass()
-        self.bmr = self.calculate_bmr()
-        self.tdee = self.bmr * 1.2
+        self.rmr = self.calculate_rmr()
         self.adjust_calories()
         self.calculate_macros()
 
     def get_macros(self):
+        """Returns the current macro distribution."""
         return {
             "Calories": round(self.calories),
             "Protein (g)": round(self.protein),
-            "Fats (g)": round(self.fat),
             "Carbs (g)": round(self.carbs),
+            "Fats (g)": round(self.fat),
         }
 
 # Streamlit App
-st.title("Macro Calculator")
+st.title("Macro Calculator (Cutting Focus)")
 
 weight = st.number_input("Enter your weight (lbs)", min_value=50.0, max_value=500.0, step=1.0)
 bf_percent = st.number_input("Enter your body fat percentage", min_value=1.0, max_value=60.0, step=0.5)
@@ -65,8 +68,8 @@ if st.button("Calculate Macros"):
     st.write(f"### Recommended Daily Macros:")
     st.write(f"**Calories:** {macros['Calories']}")
     st.write(f"**Protein:** {macros['Protein (g)']}g")
-    st.write(f"**Fats:** {macros['Fats (g)']}g")
     st.write(f"**Carbs:** {macros['Carbs (g)']}g")
+    st.write(f"**Fats:** {macros['Fats (g)']}g")
 
 # Weight Tracking
 new_weight = st.number_input("Enter today's weight (optional)", min_value=50.0, max_value=500.0, step=0.1)
