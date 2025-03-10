@@ -48,9 +48,7 @@ def register_user(user_id, password, weight, height, age, goal, activity_level):
 def authenticate_user(user_id, password):
     cursor.execute("SELECT password FROM users WHERE user_id=?", (user_id,))
     stored_password = cursor.fetchone()
-    if stored_password and stored_password[0] == hash_password(password):
-        return True
-    return False
+    return stored_password and stored_password[0] == hash_password(password)
 
 # Function to save weight history
 def save_weight_history(user_id, weight):
@@ -68,59 +66,65 @@ def get_weight_history(user_id):
     return cursor.fetchall()
 
 # Streamlit App
-st.title("Macro Calculator with User Registration & Login")
+st.title("Macro Calculator with User Authentication")
 
-# Login or Register
-menu = st.sidebar.selectbox("Menu", ["Login", "Register"])
+# Check if the user is already logged in
+if "user_id" not in st.session_state:
+    menu = st.sidebar.selectbox("Menu", ["Login", "Register"])
 
-if menu == "Register":
-    st.subheader("Create an Account")
-    new_user = st.text_input("Username or Email")
-    new_pass = st.text_input("Password", type="password")
-    weight = st.number_input("Enter your weight (lbs)", min_value=50.0, max_value=500.0, step=1.0)
-    height = st.number_input("Enter your height (inches)", min_value=48.0, max_value=84.0, step=1.0)
-    age = st.number_input("Enter your age", min_value=15, max_value=80, step=1)
-    goal = st.selectbox("Select your goal", ["Cut", "Maintain", "Bulk"])
-    
-    # Activity Level Selection
-    activity_options = {
-        "Sedentary (little to no exercise)": 1.2,
-        "Lightly Active (1-3 days/week)": 1.375,
-        "Moderately Active (3-5 days/week)": 1.55,
-        "Very Active (6-7 days/week)": 1.725,
-        "Super Active (intense daily exercise)": 1.9
-    }
-    activity_selection = st.selectbox("Select your activity level", list(activity_options.keys()))
-    activity_level = activity_options[activity_selection]
+    if menu == "Register":
+        st.subheader("Create an Account")
+        new_user = st.text_input("Username or Email")
+        new_pass = st.text_input("Password", type="password")
+        weight = st.number_input("Enter your weight (lbs)", min_value=50.0, max_value=500.0, step=1.0)
+        height = st.number_input("Enter your height (inches)", min_value=48.0, max_value=84.0, step=1.0)
+        age = st.number_input("Enter your age", min_value=15, max_value=80, step=1)
+        goal = st.selectbox("Select your goal", ["Cut", "Maintain", "Bulk"])
 
-    if st.button("Register"):
-        try:
-            register_user(new_user, new_pass, weight, height, age, goal, activity_level)
-            st.success("Account created successfully! Please log in.")
-        except:
-            st.error("Username already exists. Try a different one.")
+        # Activity Level Selection
+        activity_options = {
+            "Sedentary (little to no exercise)": 1.2,
+            "Lightly Active (1-3 days/week)": 1.375,
+            "Moderately Active (3-5 days/week)": 1.55,
+            "Very Active (6-7 days/week)": 1.725,
+            "Super Active (intense daily exercise)": 1.9
+        }
+        activity_selection = st.selectbox("Select your activity level", list(activity_options.keys()))
+        activity_level = activity_options[activity_selection]
 
-elif menu == "Login":
-    st.subheader("Login to Your Account")
-    user_id = st.text_input("Username or Email")
-    password = st.text_input("Password", type="password")
+        if st.button("Register"):
+            try:
+                register_user(new_user, new_pass, weight, height, age, goal, activity_level)
+                st.success("Account created successfully! Please log in.")
+            except:
+                st.error("Username already exists. Try a different one.")
 
-    if st.button("Login"):
-        if authenticate_user(user_id, password):
-            st.session_state["user_id"] = user_id  # Store user session
-            st.success(f"Welcome {user_id}!")
-        else:
-            st.error("Invalid username or password.")
+    elif menu == "Login":
+        st.subheader("Login to Your Account")
+        user_id = st.text_input("Username or Email")
+        password = st.text_input("Password", type="password")
 
-# If logged in, show Macro Calculator
+        if st.button("Login"):
+            if authenticate_user(user_id, password):
+                st.session_state["user_id"] = user_id  # Store user session
+                st.experimental_rerun()
+            else:
+                st.error("Invalid username or password.")
+
+# If logged in, hide login inputs and show Macro Calculator
 if "user_id" in st.session_state:
     user_id = st.session_state["user_id"]
     user_data = get_user_data(user_id)
 
     if user_data:
         _, _, weight, height, age, goal, activity_level = user_data
+        st.sidebar.write(f"**Logged in as:** {user_id}")
+        if st.sidebar.button("Logout"):
+            del st.session_state["user_id"]
+            st.experimental_rerun()
+
         st.subheader("Macro Calculation & Tracking")
-        
+
         if st.button("Recalculate Macros"):
             weight_kg = weight * 0.453592
             height_cm = height * 2.54
@@ -163,4 +167,3 @@ if "user_id" in st.session_state:
                 st.pyplot(fig)
             else:
                 st.write("No weight history found.")
-                
