@@ -1,103 +1,87 @@
 import streamlit as st
+import sqlite3
+import hashlib
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
 
-class MacroCalculator:
-    def __init__(self, user_id, weight, height, age, activity_level, goal):
-        """
-        Initializes the macro calculator.
-        :param user_id: Unique identifier for each user
-        :param weight: User's weight in lbs
-        :param height: User's height in inches
-        :param age: User's age in years
-        :param activity_level: User's selected activity multiplier
-        :param goal: "cut", "maintain", or "bulk"
-        """
-        self.user_id = user_id
-        self.weight = weight
-        self.height = height
-        self.age = age
-        self.activity_level = activity_level
-        self.goal = goal.lower()
+# Database Setup
+conn = sqlite3.connect("users.db", check_same_thread=False)
+cursor = conn.cursor()
 
-        # Convert weight (lbs) to kg and height (inches) to cm
-        weight_kg = self.weight * 0.453592
-        height_cm = self.height * 2.54
+# Create users table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    password TEXT,
+    weight REAL,
+    height REAL,
+    age INTEGER,
+    goal TEXT,
+    activity_level REAL
+)
+""")
+conn.commit()
 
-        # Calculate Resting Metabolic Rate (RMR)
-        self.rmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * self.age) + 5
+# Create weight history table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS weight_history (
+    user_id TEXT,
+    date TEXT,
+    weight REAL,
+    FOREIGN KEY(user_id) REFERENCES users(user_id)
+)
+""")
+conn.commit()
 
-        # Convert RMR to TDEE using activity level
-        self.tdee = self.rmr * self.activity_level
+# Helper function to hash passwords
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-        self.adjust_calories()
-        self.calculate_macros()
-        self.save_weight_history()
+# Function to register a new user
+def register_user(user_id, password, weight, height, age, goal, activity_level):
+    hashed_password = hash_password(password)
+    cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)",
+                   (user_id, hashed_password, weight, height, age, goal, activity_level))
+    conn.commit()
 
-    def adjust_calories(self):
-        """Adjusts calories based on the goal (cut, maintain, bulk)."""
-        if self.goal == "cut":
-            self.calories = self.tdee - 500  # 500 kcal deficit
-        elif self.goal == "bulk":
-            self.calories = self.tdee + 300  # 300 kcal surplus
-        else:
-            self.calories = self.tdee  # Maintenance
+# Function to authenticate user
+def authenticate_user(user_id, password):
+    cursor.execute("SELECT password FROM users WHERE user_id=?", (user_id,))
+    stored_password = cursor.fetchone()
+    if stored_password and stored_password[0] == hash_password(password):
+        return True
+    return False
 
-    def calculate_macros(self):
-        """Calculates macros using 40% protein, 30% carbs, 30% fat split."""
-        self.protein = (0.40 * self.calories) / 4  # Protein: 40% of total calories (4 kcal/g)
-        self.carbs = (0.30 * self.calories) / 4    # Carbs: 30% of total calories (4 kcal/g)
-        self.fat = (0.30 * self.calories) / 9      # Fat: 30% of total calories (9 kcal/g)
+# Function to save weight history
+def save_weight_history(user_id, weight):
+    cursor.execute("INSERT INTO weight_history (user_id, date, weight) VALUES (?, DATE('now'), ?)", (user_id, weight))
+    conn.commit()
 
-    def get_macros(self):
-        """Returns the current macro distribution."""
-        return {
-            "TDEE (Adjusted Calories)": round(self.tdee),
-            "Calories (Adjusted for Goal)": round(self.calories),
-            "Protein (g)": round(self.protein),
-            "Carbs (g)": round(self.carbs),
-            "Fats (g)": round(self.fat),
-        }
+# Function to get user data
+def get_user_data(user_id):
+    cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+    return cursor.fetchone()
 
-    def save_weight_history(self):
-        """Save weight history to a CSV file for tracking trends."""
-        file_name = f"{self.user_id}_weight_history.csv"
-
-        # Load existing weight history if the file exists
-        if os.path.exists(file_name):
-            df = pd.read_csv(file_name)
-        else:
-            df = pd.DataFrame(columns=["Date", "Weight"])
-
-        # Add new entry
-        new_data = pd.DataFrame({"Date": [pd.Timestamp.today().date()], "Weight": [self.weight]})
-        df = pd.concat([df, new_data], ignore_index=True)
-
-        # Save updated file
-        df.to_csv(file_name, index=False)
-
-    def load_weight_history(self):
-        """Load historical weight data for trend analysis."""
-        file_name = f"{self.user_id}_weight_history.csv"
-        if os.path.exists(file_name):
-            return pd.read_csv(file_name)
-        else:
-            return pd.DataFrame(columns=["Date", "Weight"])
-
+# Function to get weight history
+def get_weight_history(user_id):
+    cursor.execute("SELECT date, weight FROM weight_history WHERE user_id=?", (user_id,))
+    return cursor.fetchall()
 
 # Streamlit App
-st.title("Macro Calculator with Weight Tracking")
+st.title("Macro Calculator with User Registration & Login")
 
-# User ID input (for unique tracking)
-user_id = st.text_input("Enter your User ID (e.g., email or username)")
+# Login or Register
+menu = st.sidebar.selectbox("Menu", ["Login", "Register"])
 
-if user_id:
+if menu == "Register":
+    st.subheader("Create an Account")
+    new_user = st.text_input("Username or Email")
+    new_pass = st.text_input("Password", type="password")
     weight = st.number_input("Enter your weight (lbs)", min_value=50.0, max_value=500.0, step=1.0)
     height = st.number_input("Enter your height (inches)", min_value=48.0, max_value=84.0, step=1.0)
     age = st.number_input("Enter your age", min_value=15, max_value=80, step=1)
     goal = st.selectbox("Select your goal", ["Cut", "Maintain", "Bulk"])
-
+    
     # Activity Level Selection
     activity_options = {
         "Sedentary (little to no exercise)": 1.2,
@@ -109,35 +93,74 @@ if user_id:
     activity_selection = st.selectbox("Select your activity level", list(activity_options.keys()))
     activity_level = activity_options[activity_selection]
 
-    if st.button("Calculate Macros"):
-        calculator = MacroCalculator(user_id, weight, height, age, activity_level, goal)
-        macros = calculator.get_macros()
+    if st.button("Register"):
+        try:
+            register_user(new_user, new_pass, weight, height, age, goal, activity_level)
+            st.success("Account created successfully! Please log in.")
+        except:
+            st.error("Username already exists. Try a different one.")
 
-        st.write(f"### Recommended Daily Macros:")
-        st.write(f"**TDEE (Total Calories Burned Per Day):** {macros['TDEE (Adjusted Calories)']}")
-        st.write(f"**Adjusted Calories for Goal:** {macros['Calories (Adjusted for Goal)']}")
-        st.write(f"**Protein:** {macros['Protein (g)']}g")
-        st.write(f"**Carbs:** {macros['Carbs (g)']}g")
-        st.write(f"**Fats:** {macros['Fats (g)']}g")
+elif menu == "Login":
+    st.subheader("Login to Your Account")
+    user_id = st.text_input("Username or Email")
+    password = st.text_input("Password", type="password")
 
-    # Show weight history & plot graph
-    if st.button("View Weight History"):
-        calculator = MacroCalculator(user_id, weight, height, age, activity_level, goal)
-        weight_data = calculator.load_weight_history()
-
-        if not weight_data.empty:
-            st.write(weight_data)
-
-            # Convert Date column to datetime for plotting
-            weight_data["Date"] = pd.to_datetime(weight_data["Date"])
-
-            # Plot weight trend graph
-            fig, ax = plt.subplots()
-            ax.plot(weight_data["Date"], weight_data["Weight"], marker="o", linestyle="-", color="blue")
-            ax.set_title("Weight Trend Over Time")
-            ax.set_xlabel("Date")
-            ax.set_ylabel("Weight (lbs)")
-            ax.grid(True)
-            st.pyplot(fig)
+    if st.button("Login"):
+        if authenticate_user(user_id, password):
+            st.session_state["user_id"] = user_id  # Store user session
+            st.success(f"Welcome {user_id}!")
         else:
-            st.write("No weight history found.")
+            st.error("Invalid username or password.")
+
+# If logged in, show Macro Calculator
+if "user_id" in st.session_state:
+    user_id = st.session_state["user_id"]
+    user_data = get_user_data(user_id)
+
+    if user_data:
+        _, _, weight, height, age, goal, activity_level = user_data
+        st.subheader("Macro Calculation & Tracking")
+        
+        if st.button("Recalculate Macros"):
+            weight_kg = weight * 0.453592
+            height_cm = height * 2.54
+            rmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) + 5
+            tdee = rmr * activity_level
+
+            calories = tdee - 500 if goal == "Cut" else tdee + 300 if goal == "Bulk" else tdee
+            protein = (0.40 * calories) / 4
+            carbs = (0.30 * calories) / 4
+            fats = (0.30 * calories) / 9
+
+            st.write(f"### Recommended Daily Macros:")
+            st.write(f"**TDEE:** {round(tdee)} kcal")
+            st.write(f"**Calories (Adjusted for Goal):** {round(calories)} kcal")
+            st.write(f"**Protein:** {round(protein)}g")
+            st.write(f"**Carbs:** {round(carbs)}g")
+            st.write(f"**Fats:** {round(fats)}g")
+
+        # Weight tracking
+        new_weight = st.number_input("Enter today's weight", min_value=50.0, max_value=500.0, step=0.1)
+        if st.button("Save Weight Entry"):
+            save_weight_history(user_id, new_weight)
+            st.success("Weight entry saved!")
+
+        # Show weight history
+        if st.button("View Weight History"):
+            history = get_weight_history(user_id)
+            if history:
+                df = pd.DataFrame(history, columns=["Date", "Weight"])
+                st.write(df)
+
+                # Plot weight trend
+                df["Date"] = pd.to_datetime(df["Date"])
+                fig, ax = plt.subplots()
+                ax.plot(df["Date"], df["Weight"], marker="o", linestyle="-", color="blue")
+                ax.set_title("Weight Trend Over Time")
+                ax.set_xlabel("Date")
+                ax.set_ylabel("Weight (lbs)")
+                ax.grid(True)
+                st.pyplot(fig)
+            else:
+                st.write("No weight history found.")
+                
