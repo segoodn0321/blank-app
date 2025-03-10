@@ -1,3 +1,10 @@
 numpy
 pandas
 streamlit
+flask
+fastapi
+uvicorn
+matplotlib
+seaborn
+sqlalchemy
+sqlite3
